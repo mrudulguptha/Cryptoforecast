@@ -96,6 +96,17 @@ def _load_model_and_scaler(coin: str, mode: str):
     return model, scaler
 
 
+def _find_first_model_pair():
+    """Return the first available coin/mode pair that has both model and scaler files."""
+    for coin in AVAILABLE_COINS:
+        for mode in VALID_MODES:
+            model_path = os.path.join(MODEL_DIR, mode, f"{coin}_{mode}_model.h5")
+            scaler_path = os.path.join(MODEL_DIR, mode, f"{coin}_{mode}_scaler.pkl")
+            if os.path.exists(model_path) and os.path.exists(scaler_path):
+                return coin, mode
+    return None
+
+
 def _predict_future(coin: str, mode: str, steps: int):
     csv_path = os.path.join(DATA_DIR, mode, f"{coin}_{mode}.csv")
     model, scaler = _load_model_and_scaler(coin, mode)
@@ -174,13 +185,13 @@ def predict():
 def test_model():
     """Loads one available model/scaler to verify runtime compatibility."""
     try:
-        for coin in AVAILABLE_COINS:
-            for mode in VALID_MODES:
-                model_path = os.path.join(MODEL_DIR, mode, f"{coin}_{mode}_model.h5")
-                scaler_path = os.path.join(MODEL_DIR, mode, f"{coin}_{mode}_scaler.pkl")
-                if os.path.exists(model_path) and os.path.exists(scaler_path):
-                    _load_model_and_scaler(coin, mode)
-                    return jsonify({"message": "Model loaded successfully", "coin": coin, "mode": mode}), 200
+        pair = _find_first_model_pair()
+
+        if pair is not None:
+            coin, mode = pair
+            _load_model_and_scaler(coin, mode)
+            return "Model loaded successfully", 200
+
         return jsonify({"error": "No model/scaler pair found under models/"}), 404
     except Exception as exc:
         return jsonify({"error": "Model load failed", "details": str(exc)}), 500
