@@ -6,6 +6,7 @@ __pycache__/
 .Python
 env/
 venv/
+.venv/
 ENV/
 build/
 develop-eggs/
@@ -48,8 +49,6 @@ ehthumbs.db
 Thumbs.db
 
 # Project specific
-*.h5
-*.pkl
 *.pyc
 .pytest_cache/
 .coverage
