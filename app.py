@@ -185,8 +185,8 @@ def _predict_future(coin: str, mode: str, steps: int):
 
 
 @app.route("/")
-def health():
-    return jsonify({"status": "CryptoForecast running"}), 200
+def home():
+    return render_template("index.html")
 
 
 @app.route("/dashboard")
