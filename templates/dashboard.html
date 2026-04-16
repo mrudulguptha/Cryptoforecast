@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CryptoForecast Dashboard</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --primary: #0f766e;
+      --primary-hover: #115e59;
+      --border: #d1d5db;
+      --error-bg: #fee2e2;
+      --error-text: #b91c1c;
+      --ok-bg: #ecfeff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #f4f7fb 0%, #e8f1ff 100%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: start;
+      padding: 32px 16px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 760px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+    }
+
+    p.subtitle {
+      margin: 0 0 20px;
+      color: var(--muted);
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    input,
+    select,
+    button {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      font-size: 15px;
+    }
+
+    input:focus,
+    select:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.15);
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      background: var(--primary);
+      color: white;
+      font-weight: 600;
+      transition: background 0.2s ease;
+    }
+
+    button:hover {
+      background: var(--primary-hover);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .status,
+    .error {
+      margin-top: 12px;
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: none;
+    }
+
+    .status {
+      background: var(--ok-bg);
+      color: #0f766e;
+    }
+
+    .error {
+      background: var(--error-bg);
+      color: var(--error-text);
+    }
+
+    .results {
+      margin-top: 16px;
+      display: none;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+
+    .metric {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      background: #fafafa;
+    }
+
+    .metric-title {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .metric-value {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+
+    .meta {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 700px) {
+      .form-grid,
+      .results {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>CryptoForecast Predictor</h1>
+    <p class="subtitle">Call your Flask <strong>/predict</strong> API and view OHLC values.</p>
+
+    <div class="form-grid">
+      <div>
+        <label for="symbol">Symbol</label>
+        <input id="symbol" type="text" value="BTC" placeholder="e.g. BTC" />
+      </div>
+
+      <div>
+        <label for="mode">Mode</label>
+        <select id="mode">
+          <option value="daily" selected>daily</option>
+          <option value="hourly">hourly</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="timeframe">Timeframe</label>
+        <input id="timeframe" type="number" min="1" step="1" value="1" />
+      </div>
+    </div>
+
+    <button id="predictBtn">Predict</button>
+
+    <div id="status" class="status"></div>
+    <div id="error" class="error"></div>
+
+    <div id="results" class="results">
+      <div class="metric">
+        <div class="metric-title">Open</div>
+        <div id="openValue" class="metric-value">-</div>
+      </div>
+      <div class="metric">
+        <div class="metric-title">High</div>
+        <div id="highValue" class="metric-value">-</div>
+      </div>
+      <div class="metric">
+        <div class="metric-title">Low</div>
+        <div id="lowValue" class="metric-value">-</div>
+      </div>
+      <div class="metric">
+        <div class="metric-title">Close</div>
+        <div id="closeValue" class="metric-value">-</div>
+      </div>
+    </div>
+
+    <div id="meta" class="meta"></div>
+  </div>
+
+  <script>
+    const API_URL = "https://cryptoforecast.onrender.com/predict";
+
+    const symbolInput = document.getElementById("symbol");
+    const modeSelect = document.getElementById("mode");
+    const timeframeInput = document.getElementById("timeframe");
+    const predictBtn = document.getElementById("predictBtn");
+
+    const statusBox = document.getElementById("status");
+    const errorBox = document.getElementById("error");
+    const resultsBox = document.getElementById("results");
+    const metaBox = document.getElementById("meta");
+
+    const openValue = document.getElementById("openValue");
+    const highValue = document.getElementById("highValue");
+    const lowValue = document.getElementById("lowValue");
+    const closeValue = document.getElementById("closeValue");
+
+    function showStatus(message) {
+      statusBox.textContent = message;
+      statusBox.style.display = "block";
+    }
+
+    function hideStatus() {
+      statusBox.style.display = "none";
+      statusBox.textContent = "";
+    }
+
+    function showError(message) {
+      errorBox.textContent = message;
+      errorBox.style.display = "block";
+    }
+
+    function hideError() {
+      errorBox.style.display = "none";
+      errorBox.textContent = "";
+    }
+
+    function formatNumber(value) {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return "-";
+      return num.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+    }
+
+    async function predict() {
+      hideError();
+      hideStatus();
+      resultsBox.style.display = "none";
+      metaBox.textContent = "";
+
+      const symbol = symbolInput.value.trim().toUpperCase() || "BTC";
+      const mode = modeSelect.value;
+      const timeframe = Number(timeframeInput.value);
+
+      if (!Number.isInteger(timeframe) || timeframe < 1) {
+        showError("Timeframe must be a positive integer.");
+        return;
+      }
+
+      const payload = {
+        symbol,
+        mode,
+        timeframe
+      };
+
+      predictBtn.disabled = true;
+      showStatus("Fetching prediction...");
+
+      try {
+        const response = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          const message = data.error || data.details || `Request failed with status ${response.status}`;
+          throw new Error(message);
+        }
+
+        const pred = data.prediction || {};
+
+        openValue.textContent = formatNumber(pred.open);
+        highValue.textContent = formatNumber(pred.high);
+        lowValue.textContent = formatNumber(pred.low);
+        closeValue.textContent = formatNumber(pred.close);
+
+        resultsBox.style.display = "grid";
+        metaBox.textContent = `Symbol: ${data.coin || symbol} | Mode: ${data.mode || mode} | Timeframe: ${data.timeframe ?? timeframe}`;
+
+        showStatus("Prediction loaded successfully.");
+      } catch (err) {
+        showError(`Prediction failed: ${err.message}`);
+      } finally {
+        predictBtn.disabled = false;
+      }
+    }
+
+    predictBtn.addEventListener("click", predict);
+  </script>
+</body>
+</html>

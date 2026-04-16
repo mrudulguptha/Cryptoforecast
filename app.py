@@ -4,7 +4,7 @@ from typing import Dict, Tuple
 import joblib
 import numpy as np
 import pandas as pd
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, render_template, request
 
 app = Flask(__name__)
 
@@ -187,6 +187,11 @@ def _predict_future(coin: str, mode: str, steps: int):
 @app.route("/")
 def health():
     return jsonify({"status": "CryptoForecast running"}), 200
+
+
+@app.route("/dashboard")
+def dashboard():
+    return render_template("dashboard.html")
 
 
 @app.route("/predict", methods=["POST"])
