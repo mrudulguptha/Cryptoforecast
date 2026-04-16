@@ -186,7 +186,7 @@ def _predict_future(coin: str, mode: str, steps: int):
 
 @app.route("/")
 def home():
-    return render_template("index.html")
+    return render_template("dashboard.html")
 
 
 @app.route("/dashboard")
