@@ -85,15 +85,36 @@ def _load_model_and_scaler(coin: str, mode: str):
     if not os.path.exists(scaler_path):
         raise FileNotFoundError(f"Scaler file not found: {scaler_path}")
 
-    # Import TensorFlow only at load time to avoid startup overhead.
-    from tensorflow.keras.models import load_model
-
-    model = load_model(model_path, compile=False)
+    model = joblib.load(model_path)
     scaler = joblib.load(scaler_path)
 
     MODEL_CACHE[key] = model
     SCALER_CACHE[key] = scaler
     return model, scaler
+
+
+def _scale_features(values: np.ndarray, scaler: dict) -> np.ndarray:
+    mean = np.asarray(scaler["mean"], dtype=float)
+    scale = np.asarray(scaler["scale"], dtype=float)
+    return (values - mean) / scale
+
+
+def _inverse_ohlc(values: np.ndarray, scaler: dict) -> np.ndarray:
+    mean = np.asarray(scaler["mean"], dtype=float)[:4]
+    scale = np.asarray(scaler["scale"], dtype=float)[:4]
+    return values[:4] * scale + mean
+
+
+def _predict_scaled(model, features_scaled: np.ndarray) -> np.ndarray:
+    if isinstance(model, dict) and "coef" in model and "intercept" in model:
+        coef = np.asarray(model["coef"], dtype=float)
+        intercept = np.asarray(model["intercept"], dtype=float)
+        return features_scaled @ coef.T + intercept
+
+    if hasattr(model, "predict"):
+        return model.predict(features_scaled)
+
+    raise TypeError("Unsupported model format")
 
 
 def _find_first_model_pair():
@@ -110,28 +131,55 @@ def _find_first_model_pair():
 def _predict_future(coin: str, mode: str, steps: int):
     csv_path = os.path.join(DATA_DIR, mode, f"{coin}_{mode}.csv")
     model, scaler = _load_model_and_scaler(coin, mode)
-    df = _prepare_dataframe(csv_path)
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"Data file not found: {csv_path}")
 
-    data = df[FEATURE_COLS].astype(float).values
-    scaled = scaler.transform(data)
-    if len(scaled) < TIME_STEPS:
-        raise ValueError(f"Not enough rows in data for TIME_STEPS={TIME_STEPS}")
+    raw_df = pd.read_csv(csv_path)
+    raw_df.columns = [c.upper() for c in raw_df.columns]
 
-    sequence = scaled.copy()
+    required = ["DATE", "TIME", "OPEN", "HIGH", "LOW", "CLOSE"]
+    missing = [col for col in required if col not in raw_df.columns]
+    if missing:
+        raise ValueError(f"Missing required CSV columns: {', '.join(missing)}")
+
+    raw_df = raw_df[required].copy()
+    raw_df["DATETIME"] = pd.to_datetime(
+        raw_df["DATE"].astype(str) + " " + raw_df["TIME"].astype(str),
+        errors="coerce"
+    )
+    raw_df = raw_df.dropna(subset=["DATETIME"]).sort_values("DATETIME").drop_duplicates("DATETIME")
+    raw_df = raw_df[["DATE", "TIME", "OPEN", "HIGH", "LOW", "CLOSE"]].reset_index(drop=True)
+
+    if len(raw_df) < 2:
+        raise ValueError("Not enough rows in data")
+
     predictions = []
 
     for _ in range(steps):
-        x_input = sequence[-TIME_STEPS:].reshape(1, TIME_STEPS, len(FEATURE_COLS))
-        pred_scaled = model.predict(x_input, verbose=0)
+        feature_df = _add_indicators(raw_df.copy()).dropna()
+        if feature_df.empty:
+            raise ValueError("No usable rows after preprocessing")
 
-        temp = np.zeros((1, len(FEATURE_COLS)))
-        temp[0, :4] = pred_scaled[0]
-        pred_real = scaler.inverse_transform(temp)[0]
+        current_features = feature_df.iloc[-1][FEATURE_COLS].astype(float).values
+        scaled_features = _scale_features(current_features, scaler).reshape(1, -1)
+        pred_scaled = _predict_scaled(model, scaled_features)[0]
+        pred_real = _inverse_ohlc(pred_scaled, scaler)
         predictions.append(pred_real[:4])
 
-        new_row = np.zeros(len(FEATURE_COLS))
-        new_row[:4] = pred_scaled[0]
-        sequence = np.vstack([sequence, new_row])
+        last_dt = pd.to_datetime(raw_df.iloc[-1]["DATE"] + " " + raw_df.iloc[-1]["TIME"])
+        next_dt = last_dt + (pd.Timedelta(days=1) if mode == "daily" else pd.Timedelta(hours=1))
+
+        next_row = pd.DataFrame([
+            {
+                "DATE": next_dt.strftime("%Y-%m-%d"),
+                "TIME": next_dt.strftime("%H:%M:%S"),
+                "OPEN": float(pred_real[0]),
+                "HIGH": float(pred_real[1]),
+                "LOW": float(pred_real[2]),
+                "CLOSE": float(pred_real[3]),
+            }
+        ])
+        raw_df = pd.concat([raw_df, next_row], ignore_index=True)
 
     return predictions
 
